@@ -2,9 +2,10 @@ use strict;
 use warnings;
 
 use ExtUtils::MakeMaker;
+use Config;
 use Carp;
 
-my $mm_version = $ExtUtils::MakeMaker::VERSION;
+my $mm_version = $ExtUtils::MakeMaker::VERSION || $ExtUtils::MakeMaker::Version;
 if ( $mm_version < 6.58 ) {
     croak("Sorry, but MakeMaker 6.58 or better is needed to build this package.");
 }
@@ -14,7 +15,7 @@ WriteMakefile(
     DISTNAME   => 'TermReadKey',
     LICENSE    => 'perl',
     ABSTRACT   => 'Change terminal modes, and perform non-blocking reads.',
-    AUTHOR     => ['Kenneth Albanowski','Jonathan Stowe'],
+    AUTHOR     => ['Kenneth Albanowski', 'Jonathan Stowe', 'Reini Urban'],
     CONFIGURE_REQUIRES => {
         'ExtUtils::MakeMaker' => 6.58,
     },
@@ -29,7 +30,7 @@ WriteMakefile(
         },
         provides  => {
             'Term::ReadKey' => {
-                file    => 'ReadKey.pm.PL',
+                file    => 'ReadKey_pm.PL',
                 version => '2.38',
             },
         },
@@ -37,16 +38,16 @@ WriteMakefile(
         resources => {
             repository => {
                 type => 'git',
-                url  => 'https://github.com/jonathanstowe/TermReadKey.git',
-                web  => 'https://github.com/jonathanstowe/TermReadKey',
+                url  => 'https://github.com/rurban/TermReadKey.git',
+                web  => 'https://github.com/rurban/TermReadKey',
             },
         },
     },
-    VERSION_FROM    => 'ReadKey.pm.PL',
+    VERSION_FROM    => 'ReadKey_pm.PL',
     XSPROTOARG      => '-noprototypes',
-    PL_FILES	    => { 'ReadKey.pm.PL' => 'ReadKey.pm' },
+    PL_FILES	    => { 'ReadKey_pm.PL' => 'ReadKey.pm' },
     PM              => { 'ReadKey.pm' => '$(INST_ARCHLIBDIR)/ReadKey.pm' },
-    clean           => { FILES => 'cchars.h ReadKey.pm' },
+    clean           => { FILES => 'cchars.h ReadKey.pm config_h.c blockoptions$(EXE_EXT)' },
     SIGN            => 1,
 
     # Uncomment these to allow testing of sgtty under Linux. Not needed normally.
@@ -59,8 +60,10 @@ sub MY::top_targets {
     $_ = $self->MM::top_targets();
     # ensure that the XS is built before the PM
     s/pure_all :: config pm_to_blib (.* )linkext/pure_all :: config linkext pm_to_blib $1/;
-
     $_ .= "
+blockoptions: config.h
+	\$(CP) config.h config_h.c
+	\$(CC) \$(PASTHRU_INC) -I\$(PERL_INC) \$(CCFLAGS) -DPROBE_MAIN config_h.c -o blockoptions
 
 sgtty cchars.h: genchars.pl
 	\$(PERLRUN) genchars.pl
@@ -78,9 +81,17 @@ ReadKey\$(OBJ_EXT): ReadKey.c cchars.h
 sub MY::processPL {
     my $self = shift;
     $_ = $self->MM::processPL();
-    s/ReadKey.pm :: ReadKey.pm.PL/ReadKey.pm :: ReadKey.pm.PL dynamic/;
-    s/\$\(PERLRUN\)/\$(FULLPERLRUNINST)/;
-    return $_;
+    if (!$ENV{PERL_CORE}) {
+        s/ReadKey.pm :: ReadKey_pm.PL/ReadKey.pm :: ReadKey_pm.PL dynamic/;
+    } else {
+        my $cmd = '$(FULLPERLRUNINST)';
+        my $useshrplib = $Config{useshrplib} =~ /^(true|yes)$/;
+        if ($useshrplib && $Config{ldlibpthname}) {
+          $cmd = "$Config{ldlibpthname}=../.. $cmd";
+        }
+        s/\$\(PERLRUN\)(.+)$/$cmd $1 || \$\(PERLRUN\) $1/;
+    }
+    $_
 }
 
 sub MY::test {

@@ -6,7 +6,7 @@ package Term::ReadKey;
 # and in the Makefile.PL
 use vars qw($VERSION);
 
-$VERSION = '2.38';
+$VERSION = '2.38_03';
 
 use Config;
 use File::Basename qw(&basename &dirname);
@@ -315,14 +315,12 @@ choose to license this under the standard Perl license:
 
 =cut
 
-use vars qw($VERSION);
+use vars qw($VERSION @ISA @EXPORT_OK @EXPORT);
 
-$VERSION = '2.38';
+$VERSION = '2.38_03';
 
 require Exporter;
 require DynaLoader;
-
-use vars qw(@ISA @EXPORT_OK @EXPORT);
 
 @ISA = qw(Exporter DynaLoader);
 
@@ -401,45 +399,38 @@ sub GetTerminalSize
     my $file = normalizehandle( ( @_ > 0 ? $_[0] : \*STDOUT ) );
 
     my (@results, @fail);
+    my $opts = termsizeoptions();
 
-    if ( &termsizeoptions() & 1 )                       # VIO
-    {
+    if ( $opts & 1 ) {                      # VIO
         @results = GetTermSizeVIO($file);
         push( @fail, "VIOGetMode call" );
     }
-    elsif ( &termsizeoptions() & 2 )                    # GWINSZ
-    {
+    elsif ( $opts & 2 ) {                   # GWINSZ
         @results = GetTermSizeGWINSZ($file);
         push( @fail, "TIOCGWINSZ ioctl" );
     }
-    elsif ( &termsizeoptions() & 4 )                    # GSIZE
-    {
+    elsif ( $opts & 4 ) {                   # GSIZE
         @results = GetTermSizeGSIZE($file);
         push( @fail, "TIOCGSIZE ioctl" );
     }
-    elsif ( &termsizeoptions() & 8 )                    # WIN32
-    {
+    elsif ( $opts & 8 ) {                   # WIN32
         @results = GetTermSizeWin32($file);
         push( @fail, "Win32 GetConsoleScreenBufferInfo call" );
     }
-    else
-    {
+    else {
         @results = ();
     }
 
-    if ( @results < 4 and $UseEnv )
-    {
+    if ( @results < 4 and $UseEnv ) {
         my ($C) = defined( $ENV{COLUMNS} ) ? $ENV{COLUMNS} : 0;
         my ($L) = defined( $ENV{LINES} )   ? $ENV{LINES}   : 0;
-        if ( ( $C >= 2 ) and ( $L >= 2 ) )
-        {
+        if ( ( $C >= 2 ) and ( $L >= 2 ) ) {
             @results = ( $C + 0, $L + 0, 0, 0 );
         }
         push( @fail, "COLUMNS and LINES environment variables" );
     }
 
-    if ( @results < 4 && $^O ne 'MSWin32')
-    {
+    if ( @results < 4 && $^O ne 'MSWin32') {
         my ($prog) = "resize";
 
         # Workaround for Solaris path silliness
@@ -460,20 +451,17 @@ sub GetTerminalSize
                 $results[1] = $1;
                 @results[ 2, 3 ] = ( 0, 0 );
             }
-            else
-            {
+            else {
                 @results = ();
             }
         }
-        else
-        {
+        else {
             @results = ();
         }
         push( @fail, "resize program" );
     }
 
-    if ( @results < 4 && $^O ne 'MSWin32' )
-    {
+    if ( @results < 4 && $^O ne 'MSWin32' ) {
         my ($prog) = "stty size";
 
         my ($stty) = scalar(`$prog 2>/dev/null`);
@@ -485,15 +473,13 @@ sub GetTerminalSize
             $results[1] = $1;
             @results[ 2, 3 ] = ( 0, 0 );
         }
-        else
-        {
+        else {
             @results = ();
         }
         push( @fail, "stty program" );
     }
 
-    if ( @results != 4 )
-    {
+    if ( @results != 4 ) {
         carp("Unable to get Terminal Size."
              . join( "", map( " The $_ didn't work.", @fail ) ));
 	return undef;
@@ -508,19 +494,30 @@ close OUT;
 # preload the XS module needed for the blockoptions() expansions below
 # does not work with miniperl
 package Term::ReadKey;
-require DynaLoader;
+eval { require DynaLoader; };
 our @ISA = qw(DynaLoader);
 
 print "Bootstrapping the XS for blockoptions: ";
-bootstrap Term::ReadKey or die;
-print blockoptions()."\n";
+my $blockoptions;
+eval { bootstrap Term::ReadKey };
+if (!$@) {
+  $blockoptions = blockoptions();
+} elsif ($^ eq 'MSWin32') {
+  $blockoptions = 8;
+} else {
+  system "$Config{make} blockoptions";
+  my $cmd = "./blockoptions" . $Config{exe_ext};
+  # $cmd = "$Config{ldlibpthname}=../.. $cmd" if $Config{useshrplib} =~ /^(true|yes)$/;
+  $blockoptions = `$cmd`;
+}
+print $blockoptions,"\n";
 
 open OUT, ">>", $file or die "Can't append to $file: $!";
 print OUT "# blockoptions: \n";
-if ( &blockoptions() & 1 )    # Use nodelay
+if ( $blockoptions & 1 )    # Use nodelay
 {
     print OUT "#nodelay\n";
-    if ( &blockoptions() & 2 )    #poll
+    if ( $blockoptions & 2 )    #poll
     {
         print OUT <<'!NO!SUBS!';
 # poll
@@ -551,7 +548,7 @@ sub ReadLine {
 !NO!SUBS!
 
     }
-    elsif ( &blockoptions() & 4 )    #select
+    elsif ( $blockoptions & 4 )    #select
     {
         print OUT <<'!NO!SUBS!';
 #select
@@ -630,7 +627,7 @@ sub ReadLine {
 else {
     print OUT "#no nodelay\n";
 
-    if ( &blockoptions() & 2 )    # Use poll
+    if ( $blockoptions & 2 )    # Use poll
     {
         print OUT <<'!NO!SUBS!';
 #poll
@@ -651,7 +648,7 @@ sub ReadLine {
 !NO!SUBS!
 
     }
-    elsif ( &blockoptions() & 4 )    # Use select
+    elsif ( $blockoptions & 4 )    # Use select
     {
         print OUT <<'!NO!SUBS!';
 #select
@@ -672,7 +669,7 @@ sub ReadLine {
 !NO!SUBS!
 
     }
-    elsif ( &blockoptions() & 8 )    # Use Win32
+    elsif ( $blockoptions & 8 )    # Use Win32
     {
         print OUT <<'!NO!SUBS!';
 #Win32
